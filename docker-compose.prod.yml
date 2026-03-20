@@ -1,0 +1,113 @@
+services:
+  frontend:
+    build:
+      context: ./cvailor-frontend
+      target: production
+    container_name: cvailor-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: always
+
+  api:
+    build:
+      context: ./cvailor-backend
+      target: production
+    container_name: cvailor-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  worker:
+    build:
+      context: ./cvailor-backend
+      target: production
+    container_name: cvailor-worker
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.workers.celery_app worker --loglevel=warning --concurrency=4
+    restart: always
+
+  flower:
+    build:
+      context: ./cvailor-backend
+      target: production
+    container_name: cvailor-flower
+    ports:
+      - "5555:5555"
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A app.workers.celery_app flower --broker=redis://redis:6379/1 --port=5555 --basic_auth=${FLOWER_USER}:${FLOWER_PASSWORD}
+    restart: always
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: cvailor-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    container_name: cvailor-redis
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  nginx:
+    image: nginx:alpine
+    container_name: cvailor-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - api
+    restart: always
+
+volumes:
+  postgres_data:
+  redis_data:

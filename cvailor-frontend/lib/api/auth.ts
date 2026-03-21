@@ -26,5 +26,5 @@ export interface AuthResponse {
 }
 
 export async function registerUser(payload: RegisterPayload): Promise<AuthResponse> {
-  return api.post<AuthResponse>('/api/v1/auth/register', payload)
+  return api.post<AuthResponse>('/v1/auth/register', payload)
 }
